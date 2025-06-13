@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GIF圧縮ツール</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>GIF圧縮ツール</h1>
+        <p class="subtitle">GIFアニメーション・静止画を簡単に圧縮</p>
+        
+        <div class="upload-area" id="uploadArea">
+            <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+            <p>クリックまたはドラッグ&ドロップでGIFファイルを選択</p>
+            <input type="file" id="fileInput" accept=".gif" hidden>
+        </div>
+
+        <div class="preview-section" id="previewSection" style="display: none;">
+            <div class="preview-container">
+                <div class="preview-box">
+                    <h3>元のGIF</h3>
+                    <img id="originalPreview" alt="元のGIF">
+                    <p class="file-info" id="originalInfo"></p>
+                </div>
+                <div class="preview-box">
+                    <h3>圧縮後のGIF</h3>
+                    <div id="compressedPreview" class="compressed-preview">
+                        <div class="loading" id="loading">
+                            <div class="spinner"></div>
+                            <p>圧縮中...</p>
+                            <p class="progress" id="progressText"></p>
+                        </div>
+                        <img id="compressedImage" alt="圧縮後のGIF" style="display: none;">
+                    </div>
+                    <p class="file-info" id="compressedInfo"></p>
+                </div>
+            </div>
+
+            <div class="controls">
+                <label for="qualitySlider">色数削減:</label>
+                <select id="colorReduction">
+                    <option value="256">256色（最高品質）</option>
+                    <option value="128" selected>128色（推奨）</option>
+                    <option value="64">64色</option>
+                    <option value="32">32色</option>
+                    <option value="16">16色（最小サイズ）</option>
+                </select>
+                
+                <label for="scaleSlider">サイズ縮小:</label>
+                <input type="range" id="scaleSlider" min="10" max="100" value="100" step="10">
+                <span id="scaleValue">100</span>%
+                
+                <label for="fpsReduction">
+                    <input type="checkbox" id="fpsReduction">
+                    フレームレート削減（2フレームに1つ削除）
+                </label>
+            </div>
+
+            <div class="button-group">
+                <button id="compressBtn" class="btn btn-primary">圧縮開始</button>
+                <button id="downloadBtn" class="btn btn-success" style="display: none;">ダウンロード</button>
+                <button id="resetBtn" class="btn btn-secondary">リセット</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
