@@ -94,8 +94,8 @@ async function compressGIF() {
         
         // GIFファイルを解析
         const arrayBuffer = await originalFile.arrayBuffer();
-        const gif = gifuctJs.parseGIF(arrayBuffer);
-        const frames = gifuctJs.decompressFrames(gif, true);
+        const gif = parseGIF(arrayBuffer);
+        const frames = decompressFrames(gif, true);
         
         console.log('解析されたフレーム数:', frames.length);
         
