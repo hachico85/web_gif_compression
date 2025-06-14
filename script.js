@@ -85,28 +85,35 @@ async function compressGIF() {
     loading.style.display = 'block';
     compressedImage.style.display = 'none';
     downloadBtn.style.display = 'none';
-    progressText.textContent = 'GIFを処理中...';
+    progressText.textContent = 'GIFを解析中...';
     
     try {
         // 圧縮設定
         const scale = parseInt(scaleSlider.value) / 100;
         const colors = parseInt(colorReduction.value);
         
-        // 画像要素を作成
-        const img = new Image();
+        // GIFファイルを解析
+        const arrayBuffer = await originalFile.arrayBuffer();
+        const gif = gifuctJs.parseGIF(arrayBuffer);
+        const frames = gifuctJs.decompressFrames(gif, true);
         
-        await new Promise((resolve, reject) => {
-            img.onload = resolve;
-            img.onerror = reject;
-            img.src = originalPreview.src;
-        });
-        
-        // 新しいサイズを計算
-        const newWidth = Math.round(img.width * scale);
-        const newHeight = Math.round(img.height * scale);
-        
-        progressText.textContent = '画像を圧縮中...';
-        await compressStaticGIF(img, newWidth, newHeight, colors);
+        if (frames.length > 1) {
+            // アニメーションGIFの場合
+            progressText.textContent = `${frames.length}フレームを圧縮中...`;
+            await compressAnimatedGIF(frames, scale, colors, fpsReduction.checked);
+        } else {
+            // 静止画GIFの場合
+            progressText.textContent = '静止画を圧縮中...';
+            const img = new Image();
+            await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = reject;
+                img.src = originalPreview.src;
+            });
+            const newWidth = Math.round(img.width * scale);
+            const newHeight = Math.round(img.height * scale);
+            await compressStaticGIF(img, newWidth, newHeight, colors);
+        }
         
     } catch (error) {
         console.error('圧縮エラー:', error);
@@ -115,77 +122,66 @@ async function compressGIF() {
     }
 }
 
-async function extractGIFFrames(file) {
-    return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const arrayBuffer = e.target.result;
-            const uint8Array = new Uint8Array(arrayBuffer);
-            
-            // 簡易的なGIF解析でフレーム数を判定
-            let frameCount = 0;
-            for (let i = 0; i < uint8Array.length - 1; i++) {
-                if (uint8Array[i] === 0x21 && uint8Array[i + 1] === 0xF9) {
-                    frameCount++;
-                }
-            }
-            
-            // フレーム情報を生成（簡易版）
-            const frames = [];
-            for (let i = 0; i < Math.max(1, frameCount); i++) {
-                frames.push({
-                    delay: 100, // デフォルト遅延
-                    canvas: null // 後で設定
-                });
-            }
-            
-            resolve(frames);
-        };
-        reader.readAsArrayBuffer(file);
-    });
-}
-
-async function compressAnimatedGIF(frames, width, height, colors, skipFrames) {
+async function compressAnimatedGIF(frames, scale, colors, skipFrames) {
+    // 最初のフレームからサイズを取得
+    const firstFrame = frames[0];
+    const newWidth = Math.round(firstFrame.dims.width * scale);
+    const newHeight = Math.round(firstFrame.dims.height * scale);
+    
+    // gif.jsの品質パラメータ: 1が最高品質、10が最低品質
+    const quality = Math.max(1, Math.round(10 - (colors / 256) * 9));
+    
     const gif = new GIF({
         workers: 2,
-        quality: Math.round((256 - colors) / 25.6),
-        width: width,
-        height: height,
-        workerScript: './gif.worker.js'
-    });
-    
-    // 元の画像を使用してフレームを生成
-    const img = new Image();
-    img.src = originalPreview.src;
-    
-    await new Promise(resolve => {
-        img.onload = resolve;
+        quality: quality,
+        width: newWidth,
+        height: newHeight,
+        workerScript: './gif.worker.js',
+        dither: false,
+        globalPalette: true
     });
     
     const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = newWidth;
+    canvas.height = newHeight;
     const ctx = canvas.getContext('2d');
     
-    // フレーム数に応じて処理
-    const frameCount = frames.length;
-    const actualFrames = skipFrames ? Math.ceil(frameCount / 2) : frameCount;
+    // フレームを処理
+    const processedFrames = skipFrames ? frames.filter((_, i) => i % 2 === 0) : frames;
     
-    for (let i = 0; i < frameCount; i++) {
-        if (skipFrames && i % 2 === 1) continue;
+    for (let i = 0; i < processedFrames.length; i++) {
+        const frame = processedFrames[i];
+        progressText.textContent = `フレーム ${i + 1}/${processedFrames.length} を処理中...`;
         
-        progressText.textContent = `フレーム ${i + 1}/${frameCount} を処理中...`;
+        // フレームを描画用のImageDataに変換
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = frame.dims.width;
+        tempCanvas.height = frame.dims.height;
+        const tempCtx = tempCanvas.getContext('2d');
         
-        // 簡易的にメイン画像をフレームとして使用
-        ctx.clearRect(0, 0, width, height);
-        ctx.drawImage(img, 0, 0, width, height);
+        const imageData = tempCtx.createImageData(frame.dims.width, frame.dims.height);
+        imageData.data.set(frame.patch);
+        tempCtx.putImageData(imageData, 0, 0);
+        
+        // スケールして描画
+        ctx.clearRect(0, 0, newWidth, newHeight);
+        ctx.drawImage(tempCanvas, 0, 0, frame.dims.width, frame.dims.height, 0, 0, newWidth, newHeight);
+        
+        // 色数を削減
+        if (colors < 256) {
+            const scaledImageData = ctx.getImageData(0, 0, newWidth, newHeight);
+            const reducedData = reduceColors(scaledImageData, colors);
+            ctx.putImageData(reducedData, 0, 0);
+        }
+        
+        // フレームレートを調整（skipFramesの場合は遅延を2倍に）
+        const delay = skipFrames ? frame.delay * 2 : frame.delay;
         
         gif.addFrame(ctx, {
-            delay: frames[i].delay,
+            delay: delay,
             copy: true
         });
         
-        // 進行状況を更新するため少し待機
         await new Promise(resolve => setTimeout(resolve, 10));
     }
     
@@ -212,8 +208,8 @@ async function compressStaticGIF(img, width, height, colors) {
         width: width,
         height: height,
         workerScript: './gif.worker.js',
-        dither: false, // ディザリングを無効化してファイルサイズを削減
-        globalPalette: true // グローバルパレットを使用してサイズを削減
+        dither: false,
+        globalPalette: true
     });
     
     const canvas = document.createElement('canvas');
