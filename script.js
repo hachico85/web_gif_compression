@@ -164,7 +164,7 @@ async function compressAnimatedGIF(frames, width, height, colors, skipFrames) {
         quality: Math.round((256 - colors) / 25.6),
         width: width,
         height: height,
-        workerScript: 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js'
+        workerScript: './gif.worker.js'
     });
     
     // 元の画像を使用してフレームを生成
@@ -221,7 +221,7 @@ async function compressStaticGIF(img, width, height, colors) {
         quality: Math.round((256 - colors) / 25.6),
         width: width,
         height: height,
-        workerScript: 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js'
+        workerScript: './gif.worker.js'
     });
     
     const canvas = document.createElement('canvas');
