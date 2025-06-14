@@ -97,6 +97,8 @@ async function compressGIF() {
         const gif = gifuctJs.parseGIF(arrayBuffer);
         const frames = gifuctJs.decompressFrames(gif, true);
         
+        console.log('解析されたフレーム数:', frames.length);
+        
         if (frames.length > 1) {
             // アニメーションGIFの場合
             progressText.textContent = `${frames.length}フレームを圧縮中...`;
@@ -149,6 +151,8 @@ async function compressAnimatedGIF(frames, scale, colors, skipFrames) {
     // フレームを処理
     const processedFrames = skipFrames ? frames.filter((_, i) => i % 2 === 0) : frames;
     
+    console.log('処理するフレーム数:', processedFrames.length);
+    
     for (let i = 0; i < processedFrames.length; i++) {
         const frame = processedFrames[i];
         progressText.textContent = `フレーム ${i + 1}/${processedFrames.length} を処理中...`;
@@ -176,6 +180,8 @@ async function compressAnimatedGIF(frames, scale, colors, skipFrames) {
         
         // フレームレートを調整（skipFramesの場合は遅延を2倍に）
         const delay = skipFrames ? frame.delay * 2 : frame.delay;
+        
+        console.log(`フレーム ${i + 1}: 遅延 ${delay}ms`);
         
         gif.addFrame(ctx, {
             delay: delay,
@@ -261,6 +267,9 @@ function reduceColors(imageData, maxColors) {
 function displayCompressed(blob) {
     compressedBlob = blob;
     const url = URL.createObjectURL(blob);
+    
+    console.log('圧縮後のファイルサイズ:', blob.size);
+    console.log('圧縮後のURL:', url);
     
     compressedImage.src = url;
     compressedImage.style.display = 'block';
