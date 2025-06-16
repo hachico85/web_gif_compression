@@ -92,173 +92,137 @@ async function compressGIF() {
         const scale = parseInt(scaleSlider.value) / 100;
         const colors = parseInt(colorReduction.value);
         
-        // GIFファイルを解析
-        const arrayBuffer = await originalFile.arrayBuffer();
-        const gif = parseGIF(arrayBuffer);
-        const frames = decompressFrames(gif, true);
+        // 画像を読み込む
+        const img = new Image();
+        img.src = originalPreview.src;
         
-        console.log('解析されたフレーム数:', frames.length);
+        await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = () => reject(new Error('画像の読み込みに失敗しました'));
+        });
         
-        if (frames.length > 1) {
-            // アニメーションGIFの場合
-            progressText.textContent = `${frames.length}フレームを圧縮中...`;
-            await compressAnimatedGIF(frames, scale, colors, fpsReduction.checked);
-        } else {
-            // 静止画GIFの場合
-            progressText.textContent = '静止画を圧縮中...';
-            const img = new Image();
-            await new Promise((resolve, reject) => {
-                img.onload = resolve;
-                img.onerror = reject;
-                img.src = originalPreview.src;
-            });
-            const newWidth = Math.round(img.width * scale);
-            const newHeight = Math.round(img.height * scale);
-            await compressStaticGIF(img, newWidth, newHeight, colors);
+        const newWidth = Math.round(img.width * scale);
+        const newHeight = Math.round(img.height * scale);
+        
+        progressText.textContent = 'GIFを圧縮中...';
+        
+        // gif.jsの品質パラメータ: 1が最高品質、10が最低品質
+        const quality = Math.max(1, Math.round(10 - (colors / 256) * 9));
+        
+        console.log(`圧縮設定: サイズ ${scale * 100}%, 色数 ${colors}, 品質 ${quality}`);
+        
+        const gif = new GIF({
+            workers: 2,
+            quality: quality,
+            width: newWidth,
+            height: newHeight,
+            workerScript: './gif.worker.js',
+            dither: false,
+            globalPalette: true,
+            background: '#fff',
+            transparent: null
+        });
+        
+        // キャンバスを作成
+        const canvas = document.createElement('canvas');
+        canvas.width = newWidth;
+        canvas.height = newHeight;
+        const ctx = canvas.getContext('2d');
+        
+        // 背景を白にする
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, newWidth, newHeight);
+        
+        // 画像を描画
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, newWidth, newHeight);
+        
+        // 色数を削減
+        if (colors < 256) {
+            const imageData = ctx.getImageData(0, 0, newWidth, newHeight);
+            const reducedData = reduceColors(imageData, colors);
+            ctx.putImageData(reducedData, 0, 0);
         }
+        
+        // GIFに追加
+        gif.addFrame(ctx, { delay: 100, copy: true });
+        
+        gif.on('finished', function(blob) {
+            console.log('圧縮完了:', blob.size, 'bytes');
+            displayCompressed(blob);
+        });
+        
+        gif.on('progress', function(p) {
+            progressText.textContent = `GIF生成中... ${Math.round(p * 100)}%`;
+        });
+        
+        gif.render();
         
     } catch (error) {
         console.error('圧縮エラー:', error);
-        alert('圧縮中にエラーが発生しました: ' + error.message);
+        let errorMessage = 'エラーが発生しました';
+        
+        if (error.message) {
+            errorMessage = error.message;
+        } else if (error.toString) {
+            errorMessage = error.toString();
+        }
+        
+        alert(`圧縮中にエラーが発生しました:\n${errorMessage}\n\n詳細はコンソールを確認してください。`);
         loading.style.display = 'none';
     }
 }
 
-async function compressAnimatedGIF(frames, scale, colors, skipFrames) {
-    // 最初のフレームからサイズを取得
-    const firstFrame = frames[0];
-    const newWidth = Math.round(firstFrame.dims.width * scale);
-    const newHeight = Math.round(firstFrame.dims.height * scale);
-    
-    // gif.jsの品質パラメータ: 1が最高品質、10が最低品質
-    const quality = Math.max(1, Math.round(10 - (colors / 256) * 9));
-    
-    const gif = new GIF({
-        workers: 2,
-        quality: quality,
-        width: newWidth,
-        height: newHeight,
-        workerScript: './gif.worker.js',
-        dither: false,
-        globalPalette: true
-    });
-    
-    const canvas = document.createElement('canvas');
-    canvas.width = newWidth;
-    canvas.height = newHeight;
-    const ctx = canvas.getContext('2d');
-    
-    // フレームを処理
-    const processedFrames = skipFrames ? frames.filter((_, i) => i % 2 === 0) : frames;
-    
-    console.log('処理するフレーム数:', processedFrames.length);
-    
-    for (let i = 0; i < processedFrames.length; i++) {
-        const frame = processedFrames[i];
-        progressText.textContent = `フレーム ${i + 1}/${processedFrames.length} を処理中...`;
-        
-        // フレームを描画用のImageDataに変換
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = frame.dims.width;
-        tempCanvas.height = frame.dims.height;
-        const tempCtx = tempCanvas.getContext('2d');
-        
-        const imageData = tempCtx.createImageData(frame.dims.width, frame.dims.height);
-        imageData.data.set(frame.patch);
-        tempCtx.putImageData(imageData, 0, 0);
-        
-        // スケールして描画
-        ctx.clearRect(0, 0, newWidth, newHeight);
-        ctx.drawImage(tempCanvas, 0, 0, frame.dims.width, frame.dims.height, 0, 0, newWidth, newHeight);
-        
-        // 色数を削減
-        if (colors < 256) {
-            const scaledImageData = ctx.getImageData(0, 0, newWidth, newHeight);
-            const reducedData = reduceColors(scaledImageData, colors);
-            ctx.putImageData(reducedData, 0, 0);
-        }
-        
-        // フレームレートを調整（skipFramesの場合は遅延を2倍に）
-        const delay = skipFrames ? frame.delay * 2 : frame.delay;
-        
-        console.log(`フレーム ${i + 1}: 遅延 ${delay}ms`);
-        
-        gif.addFrame(ctx, {
-            delay: delay,
-            copy: true
-        });
-        
-        await new Promise(resolve => setTimeout(resolve, 10));
-    }
-    
-    progressText.textContent = 'GIFを生成中...';
-    
-    gif.on('finished', function(blob) {
-        displayCompressed(blob);
-    });
-    
-    gif.on('progress', function(p) {
-        progressText.textContent = `GIF生成中... ${Math.round(p * 100)}%`;
-    });
-    
-    gif.render();
-}
-
-async function compressStaticGIF(img, width, height, colors) {
-    // gif.jsの品質パラメータ: 1が最高品質、10が最低品質
-    const quality = Math.max(1, Math.round(10 - (colors / 256) * 9));
-    
-    const gif = new GIF({
-        workers: 2,
-        quality: quality,
-        width: width,
-        height: height,
-        workerScript: './gif.worker.js',
-        dither: false,
-        globalPalette: true
-    });
-    
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    
-    // 画像の品質を調整
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(img, 0, 0, width, height);
-    
-    // 色数を削減
-    if (colors < 256) {
-        const imageData = ctx.getImageData(0, 0, width, height);
-        const reducedData = reduceColors(imageData, colors);
-        ctx.putImageData(reducedData, 0, 0);
-    }
-    
-    gif.addFrame(ctx, { delay: 100, copy: true });
-    
-    progressText.textContent = 'GIFを生成中...';
-    
-    gif.on('finished', function(blob) {
-        displayCompressed(blob);
-    });
-    
-    gif.on('progress', function(p) {
-        progressText.textContent = `GIF生成中... ${Math.round(p * 100)}%`;
-    });
-    
-    gif.render();
-}
-
-// 色数を削減する関数
+// 色数を削減する関数（改良版）
 function reduceColors(imageData, maxColors) {
     const data = imageData.data;
-    const factor = 256 / Math.pow(maxColors, 1/3);
     
+    // カラーパレットを作成
+    const colorMap = new Map();
+    
+    // すべてのピクセルの色を収集
     for (let i = 0; i < data.length; i += 4) {
-        data[i] = Math.round(data[i] / factor) * factor;     // R
-        data[i + 1] = Math.round(data[i + 1] / factor) * factor; // G
-        data[i + 2] = Math.round(data[i + 2] / factor) * factor; // B
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const key = `${r},${g},${b}`;
+        
+        colorMap.set(key, (colorMap.get(key) || 0) + 1);
+    }
+    
+    // 色の使用頻度でソート
+    const sortedColors = Array.from(colorMap.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, maxColors)
+        .map(([color]) => color.split(',').map(Number));
+    
+    // 各ピクセルを最も近い色に置き換え
+    for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        
+        // 最も近い色を見つける
+        let minDistance = Infinity;
+        let nearestColor = sortedColors[0];
+        
+        for (const color of sortedColors) {
+            const distance = Math.sqrt(
+                Math.pow(r - color[0], 2) +
+                Math.pow(g - color[1], 2) +
+                Math.pow(b - color[2], 2)
+            );
+            
+            if (distance < minDistance) {
+                minDistance = distance;
+                nearestColor = color;
+            }
+        }
+        
+        data[i] = nearestColor[0];
+        data[i + 1] = nearestColor[1];
+        data[i + 2] = nearestColor[2];
     }
     
     return imageData;
@@ -268,12 +232,13 @@ function displayCompressed(blob) {
     compressedBlob = blob;
     const url = URL.createObjectURL(blob);
     
-    console.log('圧縮後のファイルサイズ:', blob.size);
-    console.log('圧縮後のURL:', url);
-    
     compressedImage.src = url;
     compressedImage.style.display = 'block';
-    compressedInfo.textContent = `サイズ: ${formatFileSize(blob.size)} (${Math.round((1 - blob.size / originalFile.size) * 100)}%削減)`;
+    
+    const reduction = Math.round((1 - blob.size / originalFile.size) * 100);
+    const reductionText = reduction > 0 ? `${reduction}%削減` : `${Math.abs(reduction)}%増加`;
+    
+    compressedInfo.textContent = `サイズ: ${formatFileSize(blob.size)} (${reductionText})`;
     
     loading.style.display = 'none';
     downloadBtn.style.display = 'inline-block';
